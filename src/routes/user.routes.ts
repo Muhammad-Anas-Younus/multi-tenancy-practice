@@ -17,9 +17,7 @@ router.post(
       let { tenant_id } = req.body;
 
       if (!name || !email || !password || !tenant_id || !user_type) {
-        return res
-          .status(400)
-          .json({ success: false, error: "Bad request" });
+        return res.status(400).json({ success: false, error: "Bad request" });
       }
 
       if (req.auth!.role === "org-admin") {
@@ -55,15 +53,19 @@ router.post(
 );
 
 router.post("/login", async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, error: "Bad request" });
     }
 
-    const client = await pool.connect();
     let user;
     try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.login_email', $1, true)", [
+        email,
+      ]);
       const result = await client.query(
         "SELECT id, tenant_id, user_type, password_hashed FROM users WHERE email = $1",
         [email],
@@ -97,11 +99,40 @@ router.post("/login", async (req: Request, res: Response) => {
 
     return res.status(200).json({ success: true, data: { token } });
   } catch (error) {
+    client.query("ROLLBACK");
     console.log("Got error while logging in user", error);
     return res
       .status(500)
       .json({ success: false, error: "Something went wrong" });
   }
 });
+
+router.get(
+  "/get-all-users",
+  authenticate,
+  authorize("org-admin", "org-user"),
+  async (req: Request, res: Response) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const role = req.auth!.role;
+
+      if (role === "platform-admin") {
+        return res.status(403);
+      }
+      await client.query(
+        "SELECT set_config('app.current_tenant_id', $1, true)",
+        [req.auth!.tenant_id!],
+      );
+      const result = await client.query(`SELECT * FROM users`);
+
+      return res.status(200).json({ success: true, data: result.rows });
+    } catch (error) {
+      console.log("Got an error while getting all users");
+      return res.status(500).json({ success: false, error });
+    }
+  },
+);
 
 export default router;

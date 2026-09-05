@@ -21,9 +21,13 @@ export type UserTokenPayload = {
 export type AuthTokenPayload = AdminTokenPayload | UserTokenPayload;
 
 export function signToken(payload: AuthTokenPayload): string {
-  return jwt.sign(payload, JWT_SECRET as string, {
-    expiresIn: JWT_EXPIRES_IN,
-  } as jwt.SignOptions);
+  return jwt.sign(
+    payload,
+    JWT_SECRET as string,
+    {
+      expiresIn: JWT_EXPIRES_IN,
+    } as jwt.SignOptions,
+  );
 }
 
 export function verifyToken(token: string): AuthTokenPayload {

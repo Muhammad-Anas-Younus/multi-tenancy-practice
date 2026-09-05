@@ -1,7 +1,15 @@
 import path from "path";
 import { Client } from "pg";
 import fs from "fs";
-import { DB_HOST, DB_NAME, DB_PASS, DB_PORT, DB_USER } from "../config/env";
+import {
+  DB_APP_USER,
+  DB_APP_USER_PASS,
+  DB_HOST,
+  DB_NAME,
+  DB_PASS,
+  DB_PORT,
+  DB_USER,
+} from "../config/env";
 
 async function runMigrations() {
   const client = new Client({
@@ -13,6 +21,46 @@ async function runMigrations() {
   });
 
   await client.connect();
+
+  // create app user
+  try {
+    const roleCheck = await client.query(
+      `SELECT 1 FROM pg_roles WHERE rolname = $1`,
+      [DB_APP_USER],
+    );
+
+    if (roleCheck.rows.length === 0) {
+      await client.query(
+        `CREATE ROLE ${DB_APP_USER} WITH LOGIN PASSWORD ${client.escapeLiteral(DB_APP_USER_PASS)}`,
+      );
+      console.log(`Role ${DB_APP_USER} successfully created.`);
+    } else {
+      console.log(`Role ${DB_APP_USER} already exists. Skipping creation.`);
+    }
+
+    await client.query(`GRANT USAGE ON SCHEMA public TO ${DB_APP_USER}`);
+
+    await client.query(
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${DB_APP_USER}`,
+    );
+
+    await client.query(
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ${DB_APP_USER}`,
+    );
+
+    await client.query(
+      `GRANT SELECT, INSERT, DELETE, UPDATE ON ALL TABLES IN SCHEMA public TO ${DB_APP_USER}`,
+    );
+
+    await client.query(
+      `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ${DB_APP_USER};`,
+    );
+
+    console.log(`Global setup complete for app user: ${DB_APP_USER}`);
+  } catch (error) {
+    console.log("Got an error while trying to create database app user", error);
+  }
+
   try {
     client.query(
       `CREATE TABLE IF NOT EXISTS migrations(
