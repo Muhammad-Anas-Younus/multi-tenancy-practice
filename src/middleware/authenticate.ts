@@ -1,10 +1,17 @@
 import { NextFunction, Request, Response } from "express";
-import { AuthTokenPayload, verifyToken } from "../utils/jwt";
+import {
+  AdminTokenPayload,
+  AuthTokenPayload,
+  UserTokenPayload,
+  verifyToken,
+} from "../utils/jwt";
 
 declare global {
   namespace Express {
     interface Request {
       auth?: AuthTokenPayload;
+      adminAuth?: AdminTokenPayload;
+      tenantAuth?: UserTokenPayload;
     }
   }
 }

@@ -6,6 +6,13 @@ export function authorize(...roles: AuthTokenPayload["role"][]) {
     if (!req.auth || !roles.includes(req.auth.role)) {
       return res.status(403).json({ success: false, error: "Forbidden" });
     }
+
+    if (req.auth.role === "platform-admin") {
+      req.adminAuth = req.auth;
+    } else {
+      req.tenantAuth = req.auth;
+    }
+
     return next();
   };
 }

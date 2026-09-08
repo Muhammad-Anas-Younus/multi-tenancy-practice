@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/authorize";
 import { signToken } from "../utils/jwt";
+import { withTenantContext } from "../utils/tenant-helpers";
 
 const router = express.Router();
 
@@ -12,37 +13,39 @@ router.post(
   authenticate,
   authorize("platform-admin", "org-admin"),
   async (req: Request, res: Response) => {
+    const auth =
+      req.auth?.role === "platform-admin" ? req.adminAuth : req.tenantAuth!;
     try {
       const { name, email, password, user_type } = req.body;
       let { tenant_id } = req.body;
+
+      const effectiveTenantId =
+        auth?.role === "platform-admin" ? tenant_id : auth?.tenant_id;
 
       if (!name || !email || !password || !tenant_id || !user_type) {
         return res.status(400).json({ success: false, error: "Bad request" });
       }
 
-      if (req.auth!.role === "org-admin") {
-        if (tenant_id !== req.auth!.tenant_id) {
+      if (auth?.role === "org-admin") {
+        if (tenant_id !== effectiveTenantId) {
           return res.status(403).json({ success: false, error: "Forbidden" });
         }
       }
 
-      const client = await pool.connect();
-      try {
-        const hashedPassword = await bcrypt.hash(password, 10);
+      const hashedPassword = await bcrypt.hash(password, 10);
 
-        const row = await client.query(
+      const row = await withTenantContext(effectiveTenantId, async (client) => {
+        return await client.query(
           "INSERT INTO users (name, email, password_hashed, tenant_id, user_type) VALUES ($1, $2, $3, $4, $5) RETURNING id",
           [name, email, hashedPassword, tenant_id, user_type],
         );
+      });
 
-        if (row.rows.length === 0) {
-          throw new Error("Something went wrong!");
-        }
-
-        return res.status(201).json({ success: true, data: row.rows[0] });
-      } finally {
-        client.release();
+      if (row.rows.length === 0) {
+        throw new Error("Something went wrong!");
       }
+
+      return res.status(201).json({ success: true, data: row.rows[0] });
     } catch (error) {
       console.log("Got error while creating user", error);
       return res
@@ -71,8 +74,11 @@ router.post("/login", async (req: Request, res: Response) => {
         [email],
       );
       user = result.rows[0];
-    } finally {
-      client.release();
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.log("Got an error while getting email");
+      return res.status(500).json({ success: false, error });
     }
 
     if (!user) {
@@ -104,6 +110,8 @@ router.post("/login", async (req: Request, res: Response) => {
     return res
       .status(500)
       .json({ success: false, error: "Something went wrong" });
+  } finally {
+    client.release();
   }
 });
 
@@ -112,20 +120,19 @@ router.get(
   authenticate,
   authorize("org-admin", "org-user"),
   async (req: Request, res: Response) => {
-    const client = await pool.connect();
     try {
-      await client.query("BEGIN");
-
       const role = req.auth!.role;
 
       if (role === "platform-admin") {
-        return res.status(403);
+        return res.status(403).json({ success: false });
       }
-      await client.query(
-        "SELECT set_config('app.current_tenant_id', $1, true)",
-        [req.auth!.tenant_id!],
+
+      const result = await withTenantContext(
+        req.auth!.tenant_id!,
+        async (client) => {
+          return await client.query(`SELECT * FROM users`);
+        },
       );
-      const result = await client.query(`SELECT * FROM users`);
 
       return res.status(200).json({ success: true, data: result.rows });
     } catch (error) {

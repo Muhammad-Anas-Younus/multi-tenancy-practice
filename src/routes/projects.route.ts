@@ -1,33 +1,94 @@
 import express, { Request, Response } from "express";
-import pool from "../db";
+import { authenticate } from "../middleware/authenticate";
+import { authorize } from "../middleware/authorize";
+import { withTenantContext } from "../utils/tenant-helpers";
 
 const router = express.Router();
 
-router.post("/create-project", async (req: Request, res: Response) => {
-  try {
-    const { name } = req.body;
-    if (!name) {
-      return res.status(400).json({ success: false, error: "Bad request" });
+router.post(
+  "/create-project",
+  authenticate,
+  authorize("org-admin"),
+  async (req: Request, res: Response) => {
+    const auth = req.auth!;
+    try {
+      const { name } = req.body;
+      if (!name) {
+        return res.status(400).json({ success: false, error: "Bad request" });
+      }
+
+      if (auth.role === "platform-admin") {
+        return res.status(403).json({ success: false });
+      }
+
+      const row = await withTenantContext(auth.tenant_id!, async (client) => {
+        return await client.query(
+          "INSERT INTO projects (name, tenant_id) VALUES ($1, $2) RETURNING id",
+          [name, auth.tenant_id],
+        );
+      });
+
+      if (row.rows.length === 0) {
+        throw new Error("Something went wrong!");
+      }
+
+      return res.status(201).json({ success: true, data: row.rows[0] });
+    } catch (error) {
+      console.log("Got error while creating project", error);
+      return res
+        .status(500)
+        .json({ success: false, error: "Something went wrong" });
     }
+  },
+);
 
-    const client = await pool.connect();
+router.put(
+  "/:id/update",
+  authenticate,
+  authorize("org-admin"),
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { name } = req.body;
+      const auth = req.tenantAuth!;
 
-    const row = await client.query(
-      "INSERT INTO projects (name) VALUES ($1) RETURNING id",
-      [name],
-    );
+      if (!id || !name) {
+        return res.status(400).json({
+          success: false,
+          message: "Bad request",
+        });
+      }
 
-    if (row.rows.length === 0) {
-      throw new Error("Something went wrong!");
+      const result = await withTenantContext(auth.tenant_id, (client) => {
+        return client.query("SELECT * FROM projects WHERE id = $1 ", [id]);
+      });
+
+      if (result.rows.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Bad request",
+        });
+      }
+
+      const updatedResult = await withTenantContext(
+        auth.tenant_id,
+        (client) => {
+          return client.query(
+            "UPDATE projects SET name = $1 WHERE id = $2 RETURNING id",
+            [name, id],
+          );
+        },
+      );
+
+      return res.status(200).json({
+        success: true,
+        data: updatedResult.rows[0],
+      });
+    } catch (error) {
+      console.log("Got an error while updating project");
+      throw error;
     }
-
-    return res.status(201).json({ success: true, data: row.rows[0] });
-  } catch (error) {
-    console.log("Got error while creating project", error);
-    return res
-      .status(500)
-      .json({ success: false, error: "Something went wrong" });
-  }
-});
+  },
+);
 
 export default router;
