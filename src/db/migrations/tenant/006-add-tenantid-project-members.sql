@@ -1,0 +1,1 @@
+ALTER TABLE project_members ADD tenant_id INT NOT NULL;

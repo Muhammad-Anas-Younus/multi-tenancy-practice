@@ -2,6 +2,8 @@ import express, { Request, Response } from "express";
 import pool from "../db";
 import { authenticate } from "../middleware/authenticate";
 import { authorize } from "../middleware/authorize";
+import { slugify } from "../utils/slugify";
+import { runTenantMigrations } from "../db/tenant-migrate";
 
 const router = express.Router();
 
@@ -18,6 +20,8 @@ router.post(
 
       const client = await pool.connect();
       try {
+        await client.query("BEGIN");
+
         const row = await client.query(
           `INSERT INTO organizations (name, strategy) VALUES ($1, $2) RETURNING id`,
           [name, strategy],
@@ -27,13 +31,33 @@ router.post(
           throw new Error("Something went wrong");
         }
 
+        if (strategy === "schema") {
+          const schemaName = slugify(name);
+
+          await client.query(`CREATE SCHEMA "${schemaName}"`);
+          await client.query(
+            `UPDATE organizations SET schema_name = $1 WHERE id = $2`,
+            [schemaName, row.rows[0].id],
+          );
+
+          await runTenantMigrations(schemaName, client);
+        }
+
+        await client.query("COMMIT");
+
         res.status(201).json({ success: true, data: row.rows[0] });
+      } catch (error) {
+        console.log(error);
+        await client.query("ROLLBACK");
+        throw error;
       } finally {
         client.release();
       }
     } catch (error) {
       console.log("Failed to create organization", error);
-      res.status(500).json({ success: false, error: "Something went wrong" });
+      res
+        .status(500)
+        .json({ success: false, error: error || "Something went wrong" });
     }
   },
 );

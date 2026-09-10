@@ -38,10 +38,14 @@ async function runMigrations() {
       console.log(`Role ${DB_APP_USER} already exists. Skipping creation.`);
     }
 
-    await client.query(`GRANT USAGE ON SCHEMA public TO ${DB_APP_USER}`);
+    await client.query(
+      `GRANT USAGE, CREATE ON SCHEMA public TO ${DB_APP_USER}`,
+    );
+
+    await client.query(`GRANT CREATE ON DATABASE ${DB_NAME} TO ${DB_APP_USER}`);
 
     await client.query(
-      `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${DB_APP_USER}`,
+      `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE, REFERENCES ON TABLES TO ${DB_APP_USER}`,
     );
 
     await client.query(
@@ -49,7 +53,7 @@ async function runMigrations() {
     );
 
     await client.query(
-      `GRANT SELECT, INSERT, DELETE, UPDATE ON ALL TABLES IN SCHEMA public TO ${DB_APP_USER}`,
+      `GRANT SELECT, INSERT, DELETE, UPDATE, REFERENCES ON ALL TABLES IN SCHEMA public TO ${DB_APP_USER}`,
     );
 
     await client.query(
@@ -73,7 +77,7 @@ async function runMigrations() {
     const { rows } = await client.query("SELECT name FROM migrations");
     const executedMigrations = rows.map((row) => row.name);
 
-    const migrationsDir = path.join(__dirname, "migrations");
+    const migrationsDir = path.join(__dirname, "migrations", "shared");
 
     const files = fs
       .readdirSync(migrationsDir)
