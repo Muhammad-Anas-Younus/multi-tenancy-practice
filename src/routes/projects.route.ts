@@ -21,12 +21,19 @@ router.post(
         return res.status(403).json({ success: false });
       }
 
-      const row = await withTenantContext(auth.tenant_id!, async (client) => {
-        return await client.query(
-          "INSERT INTO projects (name, tenant_id) VALUES ($1, $2) RETURNING id",
-          [name, auth.tenant_id],
-        );
-      });
+      const row = await withTenantContext(
+        {
+          id: auth.tenant_id!,
+          tenant_strategy: auth.tenant_strategy,
+          tenant_schema: auth.schema_name,
+        },
+        async (client) => {
+          return await client.query(
+            "INSERT INTO projects (name, tenant_id) VALUES ($1, $2) RETURNING id",
+            [name, auth.tenant_id],
+          );
+        },
+      );
 
       if (row.rows.length === 0) {
         throw new Error("Something went wrong!");
@@ -59,9 +66,16 @@ router.put(
         });
       }
 
-      const result = await withTenantContext(auth.tenant_id, (client) => {
-        return client.query("SELECT * FROM projects WHERE id = $1 ", [id]);
-      });
+      const result = await withTenantContext(
+        {
+          id: auth.tenant_id!,
+          tenant_strategy: auth.tenant_strategy,
+          tenant_schema: auth.schema_name,
+        },
+        (client) => {
+          return client.query("SELECT * FROM projects WHERE id = $1 ", [id]);
+        },
+      );
 
       if (result.rows.length === 0) {
         return res.status(400).json({
@@ -71,7 +85,11 @@ router.put(
       }
 
       const updatedResult = await withTenantContext(
-        auth.tenant_id,
+        {
+          id: auth.tenant_id!,
+          tenant_strategy: auth.tenant_strategy,
+          tenant_schema: auth.schema_name,
+        },
         (client) => {
           return client.query(
             "UPDATE projects SET name = $1 WHERE id = $2 RETURNING id",

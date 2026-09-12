@@ -16,6 +16,8 @@ export type UserTokenPayload = {
   sub: number;
   tenant_id: number;
   role: "org-admin" | "org-user";
+  tenant_strategy: "schema" | "shared" | "database";
+  schema_name?: string;
 };
 
 export type AuthTokenPayload = AdminTokenPayload | UserTokenPayload;

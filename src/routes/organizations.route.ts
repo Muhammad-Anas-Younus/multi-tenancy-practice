@@ -21,10 +21,11 @@ router.post(
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        const slug = slugify(name);
 
         const row = await client.query(
-          `INSERT INTO organizations (name, strategy) VALUES ($1, $2) RETURNING id`,
-          [name, strategy],
+          `INSERT INTO organizations (name, strategy, slug) VALUES ($1, $2, $3) RETURNING id`,
+          [name, strategy, slug],
         );
 
         if (row.rows.length === 0) {
@@ -32,7 +33,7 @@ router.post(
         }
 
         if (strategy === "schema") {
-          const schemaName = slugify(name);
+          const schemaName = `tenant_${row.rows[0].id}`;
 
           await client.query(`CREATE SCHEMA "${schemaName}"`);
           await client.query(
